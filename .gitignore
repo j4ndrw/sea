@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Evolved agents - no need to commit this, as this will change over time in different ways for different users
+__evolution

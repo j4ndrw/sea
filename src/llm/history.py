@@ -1,6 +1,6 @@
 import json
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Callable
 
 from src.llm.evolution import ToolCallResult
 
@@ -11,6 +11,13 @@ class ChatHistory(list[dict[str, Any]]):
 
     def add_user_message(self, prompt: str):
         self.append({"role": "user", "content": prompt})
+        return self
+
+    def add_assistant_message(
+        self, content: str, *, handle_content: Callable[[str], None] = lambda _: None
+    ):
+        self.append({"role": "assistant", "content": content})
+        handle_content(content)
         return self
 
     def add_system_message(self, prompt: str):

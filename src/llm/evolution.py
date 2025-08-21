@@ -1,21 +1,25 @@
-from openai.types.chat import ChatCompletionFunctionToolParam
-from openai.types.chat.chat_completion_tool_param import FunctionDefinition
+import importlib.util
+import inspect
+import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from functools import wraps
-import inspect
-import re
 from typing import Any, Callable, Literal
 
 import pydantic
-
-tool_registry: dict[str, Callable] = {}
+from openai.types.chat import ChatCompletionFunctionToolParam
+from openai.types.chat.chat_completion_tool_param import FunctionDefinition
 
 
 @dataclass
 class Tool:
     spec: ChatCompletionFunctionToolParam
     invoke: Callable
+    requires_hitl: bool = field(default=False)
+
+
+tool_registry: dict[str, Tool] = {}
 
 
 @dataclass
@@ -135,7 +139,7 @@ def update_function_docstring(
             return wrapper
 
         wrapper.__doc__ = f"\n    Function type: {kind.capitalize()}"
-        wrapper.__doc__ = f"\n    ---"
+        wrapper.__doc__ = "\n    ---"
         wrapper.__doc__ = f"{description.details}"
         if len(description.args) > 0:
             wrapper.__doc__ += "\n\n    Args: \n        "
@@ -168,7 +172,35 @@ def tool(
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
 
-        tool_registry[wrapper.__name__] = wrapper
-        return Tool(spec=convert_function_to_tool(wrapper), invoke=wrapper)
+        tool = Tool(spec=convert_function_to_tool(wrapper), invoke=wrapper)
+        tool_registry[wrapper.__name__] = tool
+        return tool
 
     return decorator
+
+
+def get_tools_from(*, dir: str, module_name: str, evolved: bool):
+    module_path = os.path.join(dir, f"{module_name}.py")
+    package_name = os.path.relpath(dir).replace(os.path.sep, ".")
+
+    module_name = f"{package_name}.{module_name}" if package_name else module_name
+
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+
+    if spec is None or spec.loader is None:
+        return []
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    tools: list[tuple[str, Tool]] = inspect.getmembers(
+        module, lambda m: isinstance(m, Tool)
+    )  # pyright: ignore
+    tool_specs = [tool.spec for (_, tool) in tools]
+    for tool_name, tool in tools:
+        tool_registry[tool_name] = Tool(
+            spec=tool.spec,
+            invoke=tool.invoke,
+            requires_hitl=True if evolved else tool.requires_hitl,
+        )
+    return tool_specs
