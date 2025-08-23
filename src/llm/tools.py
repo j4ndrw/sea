@@ -1,20 +1,56 @@
+import httpx
+import urllib.parse
 import json
 import os
 import uuid
 from textwrap import dedent
 
-from src.constants import EVOLVED_AGENT_DIR, LLM
+from src.llm.utils import LLMGenerationConfig
+from src.constants import (
+    EVOLVED_AGENT_DIR,
+    LLM,
+    SEARXNG_ENDPOINT,
+    SUMMARIZER_SYSTEM_PROMPT,
+)
 from src.llm.client import llm_client
 from src.llm.evolution import get_tools_from, tool
-from src.llm.history import ChatHistory
-from src.llm.pipeline import SeaPipeline
+from src.llm.pipeline import SeaConfig, SeaPipeline
 from src.vector_db.client import knowledge_base_client
+from src.utils import html_to_text
 
 
 @tool(
-    "Tool used to search for a given query on the web",
+    dedent("""
+        Tool used to categorize the user's prompt.
+        The prompt can be one of:
+            1. "conversational" - mainly includes chatty behaviour, e.g. greetings, general conversation, etc...
+            2. "search" - mainly includes requests to search for information, either on the web, or for info you already have in your knowledge base
+            3. "agentic" - mainly includes requests to perform tasks, like listing files in a directory, opening applications, etc...
+    """),
+    args=[
+        (
+            "category",
+            "The category that matches the prompt. Can be one of `conversational`, `search` or `agentic`",
+        )
+    ],
+    returns=[
+        (
+            "str",
+            "The category that matches the prompt. Can be one of `conversational`, `search` or `agentic`",
+        )
+    ],
+    standalone=True,
+)
+def categorize_prompt(category: str) -> str:
+    assert category in ["conversational", "search", "agentic"]
+    return category
+
+
+@tool(
+    "Tool used to TEXTUAL search for a given query on the web",
     args=[
         ("query", "The query to perform on the web"),
+        ("should_summarize", "Whether the results you find should be summarized so that they fit within your context window. IMPORTANT: THIS NEEDS TO BE FALSE WHEN LOOKING UP CODE!!!"),
         ("max_results", "Max search results. Defaults to 10."),
     ],
     returns=[
@@ -24,14 +60,51 @@ from src.vector_db.client import knowledge_base_client
         )
     ],
 )
-def web_search(query: str, max_results=10) -> list[dict[str, str]]:
-    return [
-        {
-            "url": "https://example.com",
-            "title": "Example Title",
-            "content": "Example content",
-        }
-    ]
+def search_for_information_on_the_web(
+    query: str,
+    should_summarize: bool,
+    max_results: int = 10
+) -> list[dict[str, str]]:
+    query = urllib.parse.quote(query)
+
+    spoofed_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    r = httpx.get(
+        f"{SEARXNG_ENDPOINT}/search?q={query}&format=json",
+        headers={"User-Agent": spoofed_user_agent},
+    )
+    r.raise_for_status()
+
+    results = r.json().get("results", [])
+
+    contexts: list[dict[str, str]] = []
+
+    visited_index = 0
+    while len(contexts) < min(max_results, len(results)) and visited_index < len(
+        results
+    ):
+        if len(results) == 0:
+            break
+
+        result = results[visited_index]
+        visited_index += 1
+
+        try:
+            search_response = httpx.get(result["url"])
+            if search_response.status_code != 200:
+                continue
+
+            html = search_response.text
+            contexts.append(
+                {
+                    "url": result["url"],
+                    "title": result["title"],
+                    "content": summarize.invoke(html_to_text(html)) if should_summarize else html_to_text(html),
+                }
+            )
+        except Exception:
+            continue
+
+    return contexts
 
 
 @tool(
@@ -173,20 +246,20 @@ def get_available_agents() -> list[str]:
     returns=[("str", "The summarized text")],
 )
 def summarize(text: str) -> str:
-    chat_history = ChatHistory()
-    pipeline = SeaPipeline(llm_client=llm_client, chat_history=chat_history)
-    pipeline = pipeline.with_system_message(
-        system_prompt=dedent(f"""
-        You are the `summarizer` agent.
-        You only exist to summarize text so that it's easy to comprehend in a concise form.
-        Please keep the text 2 paragraphs at most.
-
-        The text is:
-        {text}
-    """)
+    llm_generation_config = LLMGenerationConfig(
+        model=LLM,
+        on_content_token=lambda token: print(token, end="", flush=True),
+        on_generation_finish=lambda: print("\n"),
     )
-    pipeline = pipeline.generate_llm_answer(model=LLM)
+    sea_config = SeaConfig(llm_client=llm_client)
+    pipeline = SeaPipeline(config=sea_config)
+    pipeline = pipeline.with_system_message(
+        system_prompt=SUMMARIZER_SYSTEM_PROMPT(text)
+    )
+    pipeline = pipeline.generate(config=llm_generation_config)
+    chat_history = pipeline.run()
     return chat_history[-1]["content"]
+
 
 @tool(
     "Tool used to retrieve a given agent's implementation",
@@ -219,12 +292,14 @@ def retrieve_agent_implementation(agent: str) -> str | None:
     An agent is just a file containing a bunch of functions.
     Those functions are also called tools.
     IMPORTANT: Always call `@tool` with a description, the arguments the function takes and the returns of the function!!!
+    DOUBLE IMPORTANT: DO NOT FORGET THAT `@` SYMBOL WHEN USING THE DECORATOR!!!
+
     <example>
         # Creating an agent named "calculator"
         from src.llm.evolution import tool
 
         @tool(
-            "A tool that adds multiple numbers"),
+            "A tool that adds multiple numbers",
             args=[("numbers", "The numbers to add")],
             returns=[("int", "The sum of the given numbers")]
         )
@@ -232,7 +307,7 @@ def retrieve_agent_implementation(agent: str) -> str | None:
             return sum(numbers)
 
         @tool(
-            "A tool that subtracts multiple numbers"),
+            "A tool that subtracts multiple numbers",
             args=[("numbers", "The numbers to subtract")],
             returns=[("int", "The difference of the given numbers")]
         )
@@ -251,19 +326,18 @@ def retrieve_agent_implementation(agent: str) -> str | None:
             ...
 
         @tool(
-            "A tool that performs a complex calculation on multiple numbers"),
+            "A tool that performs a complex calculation on multiple numbers",
             args=[("numbers", "The numbers to perform the calculation on")],
             returns=[("int", "The result of the calculation")]
         )
         def calculator__complex_calculation(numbers: list[int]) -> int:
             return helper1(*numbers) + helper2()
     </example>
-    <notes>
-        1. Always fit your solution in a single file.
-        2. Always decorate your tools with the `@tool` decorator from `src.llm.evolution`
-        3. Never decorate helper functions with the `@tool` decorator
-        4. Never implement tools as generators or anything complex - follow the KISS (keep it simple, stupid) principle
-    </notes>
+
+    1. Always fit your solution in a single file.
+    2. Always decorate your tools with the `@tool` decorator from `src.llm.evolution`
+    3. Never decorate helper functions with the `@tool` decorator
+    4. Never implement tools as generators or anything complex - follow the KISS (keep it simple, stupid) principle
     """,
     args=[
         (
@@ -374,7 +448,14 @@ def dispatch_agent(
             f"Agent `{agent_to_dispatch}` has no tools in its collection. I need to check the implementation of agent `{agent_to_dispatch}` and debug..."
         ]
 
-    pipeline = SeaPipeline(llm_client=llm_client, chat_history=ChatHistory())
+    llm_generation_config = LLMGenerationConfig(
+        model=LLM,
+        on_content_token=lambda token: print(token, end="", flush=True),
+        on_tool_call_token=lambda token: print(token, end="", flush=True),
+        on_generation_finish=lambda: print("\n"),
+    )
+    sea_config = SeaConfig(llm_client=llm_client)
+    pipeline = SeaPipeline(config=sea_config)
     pipeline = pipeline.with_system_message(
         system_prompt=dedent(f"""
         You are the `{agent_to_dispatch}`.
@@ -384,12 +465,8 @@ def dispatch_agent(
         {context}
     """)
     )
-    pipeline = pipeline.generate_llm_answer(
-        model=LLM,
-        tools=tools,
-        on_token=lambda token: print(token, end="", flush=True),
-        on_generation_finish=lambda: print("\n"),
-    )
-    pipeline = pipeline.run()
+    pipeline = pipeline.with_tools(tools_factory=lambda: tools)
+    pipeline = pipeline.generate(config=llm_generation_config)
+    pipeline.run()
 
     return [f"Agent `{agent_to_dispatch}` ran successfully!"]

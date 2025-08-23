@@ -1,7 +1,14 @@
 # Current pain points
 
-1. Context size is overflown easily. I'll have to implement a step before every generation where I inject the knowledge base into the conversation (sensibly, via semantic search)
-2. Web search tool is not implemented yet. The model seems to want to reach for it every time it gets the chance, despite the system prompt telling it not to.
-In hindsight this might be a good thing - forces the model to always look for answers instead of making them up.
-3. The model tends to want to reach for the knowledge base query tool often. This is currently unimplemented.
-4. The model's strategies to creating agents and tools are questionable, often creating a single tool and multiple agents, rather than an agent with a collection of tools. This might not be that bad, but still need to experiment.
+1. I tried implementing a semantic router but failed spectacularly.
+2. I tried to overcome the context challenge by fragmenting it, putting it a
+vector store and letting the LLM pull it whenever it needs it, but that also
+failed. The model never calls the vector db, just starts basing its response
+off of the short-term memory, scoped per generation pass
+
+Might've been obvious, but, unless you use a big LLM
+(maybe 14B or 70B+? don't know, I don't have resources to test this) that has a big enough context size,
+you can't really do anything self-evolving.
+
+So, GPT, Claude, Gemini or other models might work fine even without the
+fragmented memory + semantic router approach, but small models are simply tough to make work.

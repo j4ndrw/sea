@@ -8,15 +8,19 @@ from functools import wraps
 from typing import Any, Callable, Literal
 
 import pydantic
-from openai.types.chat import ChatCompletionFunctionToolParam
+from openai.types.chat import (
+    ChatCompletionFunctionToolParam,
+    ChatCompletionToolUnionParam,
+)
 from openai.types.chat.chat_completion_tool_param import FunctionDefinition
 
 
 @dataclass
 class Tool:
-    spec: ChatCompletionFunctionToolParam
+    spec: ChatCompletionToolUnionParam
     invoke: Callable
     requires_hitl: bool = field(default=False)
+    standalone: bool = field(default=False)
 
 
 tool_registry: dict[str, Tool] = {}
@@ -162,6 +166,8 @@ def tool(
     *,
     args: list[tuple[str, str]] = [],
     returns: list[tuple[str, str]] = [],
+    requires_hitl: bool = False,
+    standalone: bool = False,
 ):
     def decorator(func: Callable):
         @update_function_docstring(
@@ -172,7 +178,12 @@ def tool(
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
 
-        tool = Tool(spec=convert_function_to_tool(wrapper), invoke=wrapper)
+        tool = Tool(
+            spec=convert_function_to_tool(wrapper),
+            invoke=wrapper,
+            requires_hitl=requires_hitl,
+            standalone=standalone,
+        )
         tool_registry[wrapper.__name__] = tool
         return tool
 
@@ -193,9 +204,15 @@ def get_tools_from(*, dir: str, module_name: str, evolved: bool):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    tools: list[tuple[str, Tool]] = inspect.getmembers(
-        module, lambda m: isinstance(m, Tool)
-    )  # pyright: ignore
+    tools: list[tuple[str, Tool]] = [
+        *filter(
+            lambda t: not t[1].standalone,
+            inspect.getmembers(
+                module,
+                lambda m: isinstance(m, Tool),
+            ),
+        )
+    ]
     tool_specs = [tool.spec for (_, tool) in tools]
     for tool_name, tool in tools:
         tool_registry[tool_name] = Tool(
