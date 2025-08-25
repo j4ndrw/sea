@@ -1,9 +1,10 @@
 import importlib.util
 import inspect
+import json
 import os
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from functools import wraps
 from typing import Any, Callable, Literal
 
@@ -28,10 +29,12 @@ tool_registry: dict[str, Tool] = {}
 
 @dataclass
 class ToolCallResult:
-    tool: str
     success: bool
     error: str | None
     result: Any
+
+    def serialized(self):
+        return json.dumps(asdict(self))
 
 
 # Credit: https://github.com/ollama/ollama-python/blob/main/ollama/_utils.py#L13

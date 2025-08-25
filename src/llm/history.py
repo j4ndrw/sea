@@ -1,6 +1,4 @@
 from datetime import datetime
-import json
-from dataclasses import asdict
 from typing import Any
 import uuid
 
@@ -26,7 +24,7 @@ class ChatHistory(list[dict[str, Any]]):
         self.add_tool_call_results(
             {
                 f"{tool_name}-{tool_id}": ToolCallResult(
-                    tool=tool_name, success=True, error=None, result=content
+                    success=True, error=None, result=content
                 )
             }
         )
@@ -46,7 +44,7 @@ class ChatHistory(list[dict[str, Any]]):
                 {
                     "role": "tool",
                     "tool_call_id": tool_id,
-                    "content": json.dumps(asdict(result)),
+                    "content": result.serialized(),
                 }
             )
         return self

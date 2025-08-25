@@ -4,12 +4,9 @@ from textwrap import dedent
 from src.llm.utils import SEMANTIC_ROUTER_TARGETS
 
 LLM_BACKEND_ENDPOINT = "http://localhost:8080/v1"
-LLM = "jan:v1:4b"
-# LLM = "unsloth:qwen3:4b"
-# LLM = "unsloth:qwen3:1.7b"
-# LLM = "llama3.2:1b:instruct"
-# LLM = "qwen3:0.6b"
-# LLM = "davidau:qwen3-zero-coder-reasoning:0.8b"
+GENERALIST_LLM = "jan:v1:4b"
+SUMMARIZER_LLM = "unsloth:qwen3:4b"
+# SUMMARIZER_LLM = "unsloth:qwen3:0.6b"
 
 SEARXNG_ENDPOINT = "http://localhost:8081"
 
@@ -121,8 +118,21 @@ SYSTEM_REMINDERS = dedent(f"""
 SUMMARIZER_SYSTEM_PROMPT = lambda text: dedent(f"""
     You are the `summarizer` agent.
     You only exist to summarize text so that it's easy to comprehend in a concise form.
-    Please keep the text 2 paragraphs at most.
+
+    Make sure to summarize the text in such a way that it is easy to infer what the text was about, but also short enough to fit in a handful paragraphs of text.
 
     The text is:
     {text}
+""")
+
+DISPATCHED_AGENT_PROMPT = lambda agent_to_dispatch, original_request, context: dedent(f"""
+    You are the `{agent_to_dispatch}`.
+    You are tasked to take care of the following request from the user: `{original_request}`.
+
+    Here's some context from the master agent that reach for your help:
+    {context}
+
+    Make sure to always ask yourself if you have fulfilled the request successfully or not.
+    If you did fulfill the request, don't call any tools.
+    If you didn't fulfill the request, use your tools.
 """)

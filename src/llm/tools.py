@@ -5,11 +5,17 @@ import os
 import uuid
 from textwrap import dedent
 
+from src.llm.session.actor.system import SystemActor
+from src.llm.spawner.tool import create_tool_actor_spawner
+from src.llm.spawner.assistant import spawn_assistant_actor
+from src.llm.session.session import Session
 from src.llm.utils import LLMGenerationConfig
 from src.constants import (
+    DISPATCHED_AGENT_PROMPT,
     EVOLVED_AGENT_DIR,
-    LLM,
+    GENERALIST_LLM,
     SEARXNG_ENDPOINT,
+    SUMMARIZER_LLM,
     SUMMARIZER_SYSTEM_PROMPT,
 )
 from src.llm.client import llm_client
@@ -50,7 +56,10 @@ def categorize_prompt(category: str) -> str:
     "Tool used to TEXTUAL search for a given query on the web",
     args=[
         ("query", "The query to perform on the web"),
-        ("should_summarize", "Whether the results you find should be summarized so that they fit within your context window. IMPORTANT: THIS NEEDS TO BE FALSE WHEN LOOKING UP CODE!!!"),
+        (
+            "should_summarize",
+            "Whether the results you find should be summarized so that they fit within your context window. IMPORTANT: THIS NEEDS TO BE FALSE WHEN LOOKING UP CODE!!!",
+        ),
         ("max_results", "Max search results. Defaults to 10."),
     ],
     returns=[
@@ -61,9 +70,7 @@ def categorize_prompt(category: str) -> str:
     ],
 )
 def search_for_information_on_the_web(
-    query: str,
-    should_summarize: bool,
-    max_results: int = 10
+    query: str, should_summarize: bool, max_results: int = 10
 ) -> list[dict[str, str]]:
     query = urllib.parse.quote(query)
 
@@ -98,7 +105,9 @@ def search_for_information_on_the_web(
                 {
                     "url": result["url"],
                     "title": result["title"],
-                    "content": summarize.invoke(html_to_text(html)) if should_summarize else html_to_text(html),
+                    "content": summarize.invoke(html_to_text(html))
+                    if should_summarize
+                    else html_to_text(html),
                 }
             )
         except Exception:
@@ -122,13 +131,17 @@ def get_available_collections_in_knowledge_base() -> list[str]:
 
 
 @tool(
-    "Tool used to add a particular piece of info to the knowledge base",
+    dedent("""
+        Tool used to add a particular piece of info to the knowledge base
+        TIP: You can also use this to store facts as you progress in the conversation.
+        TIP: You can also use this to store notes in a `scratchpad` collection as you progress in the conversation.
+    """),
     args=[
         (
             "collection",
             dedent("""
                 The collection to store data in.
-                For example, you may have a `user_specifics` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
+                For example, you may have a `facts_about_user` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
                 NOTE: This is also really useful for storing data that you found in a web search. For example, you would use your "things_from_the_web" collection or something to store the data there...
             """),
         ),
@@ -141,13 +154,17 @@ def add_to_knowledge_base(collection: str, info: str) -> None:
 
 
 @tool(
-    "Tool used to update a particular piece of info to the knowledge base",
+    dedent("""
+        Tool used to update a particular piece of info to the knowledge base,
+        TIP: You can also use this to update facts as you progress in the conversation.
+        TIP: You can also use this to update notes in a `scratchpad` collection as you progress in the conversation.
+    """),
     args=[
         (
             "collection",
             dedent("""
                 The collection to store data in.
-                For example, you may have a `user_specifics` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
+                For example, you may have a `facts_about_user` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
                 NOTE: This is also really useful for storing data that you found in a web search. For example, you would use your "things_from_the_web" collection or something to store the data there...
             """),
         ),
@@ -168,13 +185,17 @@ def update_data_in_knowledge_base(
 
 
 @tool(
-    "Tool used to forget a particular piece of info to the knowledge base",
+    dedent("""
+        Tool used to forget a particular piece of info to the knowledge base,
+        TIP: You can also use this to forget facts as you progress in the conversation.
+        TIP: You can also use this to forget notes from a `scratchpad` collection as you progress in the conversation.
+    """),
     args=[
         (
             "collection",
             dedent("""
                 The collection where data to forget lives in.
-                For example, you may have a `user_specifics` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
+                For example, you may have a `facts_about_user` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
                 NOTE: This is also really useful for storing data that you found in a web search. For example, you would use your "things_from_the_web" collection or something to store the data there...
             """),
         ),
@@ -192,13 +213,17 @@ def forget_data_from_knowledge_base(collection: str, queries: list[str]) -> None
 
 
 @tool(
-    "Tool used to look for information related to the query in the knowledge base",
+    dedent("""
+        Tool used to look for information related to the query in the knowledge base,
+        TIP: You can also use this to look for facts that you stored during the current or previous conversations.
+        TIP: You can also use this to look for notes that you stored in a `scratchpad` collection over time.
+    """),
     args=[
         (
             "collection",
             dedent("""
                 The collection to look for data in.
-                For example, you may have a `user_specifics` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
+                For example, you may have a `facts_about_user` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
                 NOTE: This is really useful for getting data that you previously searched for, in a summarized manner. For example, you would use your "things_from_the_web" collection or something...
             """),
         ),
@@ -247,18 +272,32 @@ def get_available_agents() -> list[str]:
 )
 def summarize(text: str) -> str:
     llm_generation_config = LLMGenerationConfig(
-        model=LLM,
+        model=SUMMARIZER_LLM,
         on_content_token=lambda token: print(token, end="", flush=True),
         on_generation_finish=lambda: print("\n"),
     )
-    sea_config = SeaConfig(llm_client=llm_client)
-    pipeline = SeaPipeline(config=sea_config)
-    pipeline = pipeline.with_system_message(
-        system_prompt=SUMMARIZER_SYSTEM_PROMPT(text)
+    session = Session(
+        looped=False,
+        static_actors=[
+            SystemActor.with_message(
+                SUMMARIZER_SYSTEM_PROMPT(text),
+            )
+        ],
+        main_assistant_actor=spawn_assistant_actor(
+            llm_client=llm_client,
+            config=llm_generation_config,
+        ),
     )
-    pipeline = pipeline.generate(config=llm_generation_config)
-    chat_history = pipeline.run()
-    return chat_history[-1]["content"]
+    sea_config = SeaConfig(llm_client=llm_client, session=session)
+    chat_histories = SeaPipeline(config=sea_config).run()
+
+    if len(chat_histories) == 0:
+        return ""
+
+    if len(chat_histories[-1]) == 0:
+        return ""
+
+    return chat_histories[-1][-1]["content"]
 
 
 @tool(
@@ -293,6 +332,7 @@ def retrieve_agent_implementation(agent: str) -> str | None:
     Those functions are also called tools.
     IMPORTANT: Always call `@tool` with a description, the arguments the function takes and the returns of the function!!!
     DOUBLE IMPORTANT: DO NOT FORGET THAT `@` SYMBOL WHEN USING THE DECORATOR!!!
+    TRIPLE IMPORTANT: DO NOT TRY TO REGISTER AN AGENT THAT ALREADY EXISTS! If you need to modify it, call the `modify_agent` tool. If you need to fix it, call the `fix_agent` tool.
 
     <example>
         # Creating an agent named "calculator"
@@ -426,6 +466,7 @@ def modify_agent(agent_to_modify: str, new_implementation: str) -> None:
             "A summary of how executing the agent went.",
         )
     ],
+    requires_hitl=True
 )
 def dispatch_agent(
     original_request: str,
@@ -449,24 +490,26 @@ def dispatch_agent(
         ]
 
     llm_generation_config = LLMGenerationConfig(
-        model=LLM,
+        model=GENERALIST_LLM,
         on_content_token=lambda token: print(token, end="", flush=True),
         on_tool_call_token=lambda token: print(token, end="", flush=True),
         on_generation_finish=lambda: print("\n"),
     )
-    sea_config = SeaConfig(llm_client=llm_client)
-    pipeline = SeaPipeline(config=sea_config)
-    pipeline = pipeline.with_system_message(
-        system_prompt=dedent(f"""
-        You are the `{agent_to_dispatch}`.
-        You are tasked to take care of the following request from the user: `{original_request}`.
-
-        Here's some context from the master agent that reach for your help:
-        {context}
-    """)
+    session = Session(
+        looped=False,
+        static_actors=[
+            SystemActor.with_message(
+                DISPATCHED_AGENT_PROMPT(agent_to_dispatch, original_request, context),
+            )
+        ],
+        main_assistant_actor=spawn_assistant_actor(
+            llm_client=llm_client,
+            config=llm_generation_config,
+            tools_factory=lambda: tools,
+        ),
+        tool_actor_spawner=create_tool_actor_spawner(),
     )
-    pipeline = pipeline.with_tools(tools_factory=lambda: tools)
-    pipeline = pipeline.generate(config=llm_generation_config)
-    pipeline.run()
+    sea_config = SeaConfig(llm_client=llm_client, session=session)
+    SeaPipeline(config=sea_config).run()
 
     return [f"Agent `{agent_to_dispatch}` ran successfully!"]

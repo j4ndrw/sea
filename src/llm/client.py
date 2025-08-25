@@ -1,4 +1,4 @@
-from typing import Any, Callable, Iterable
+from typing import Callable, Iterable
 
 import openai
 from openai.types.chat import ChatCompletionToolUnionParam, ParsedChatCompletionMessage
@@ -22,7 +22,6 @@ class Stream(
         *,
         on_content_token: Callable[[str], None] = lambda _: None,
         on_tool_call_token: Callable[[str], None] = lambda _: None,
-        on_parsed_tool_call: Callable[[tuple[str, str, dict[str, Any]]], None],
         on_generation_finish: Callable[[], None],
     ) -> ParsedChatCompletionMessage[None]:
         for content_token, tool_call_token in self:
@@ -32,12 +31,6 @@ class Stream(
                 on_tool_call_token(tool_call_token)
 
         llm_response = self.ret
-
-        if llm_response.tool_calls is not None and len(llm_response.tool_calls) > 0:
-            for tool_call in llm_response.tool_calls:
-                args: dict[str, Any] = tool_call.function.parsed_arguments or {}  # pyright: ignore
-                on_parsed_tool_call((tool_call.id, tool_call.function.name, args))
-
         on_generation_finish()
 
         return llm_response
@@ -67,7 +60,7 @@ class LLMClient:
                 tools=tools,
                 temperature=0.6,
                 top_p=0.95,
-                max_tokens=2048
+                max_tokens=2048,
             ) as stream:
                 for event in stream:
                     if event.type == "chunk":
