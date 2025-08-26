@@ -94,6 +94,7 @@ class SeaPipeline:
                 case "search":
                     print("PASSING PROMPT TO SEARCH LLM")
                     from src.llm.tools import (
+                        dump_knowledge_base_collection,
                         query_knowledge_base,
                         search_for_information_on_the_web,
                     )
@@ -105,6 +106,7 @@ class SeaPipeline:
                         llm_client=self.config.llm_client,
                         config=config,
                         tools_factory=lambda: [
+                            dump_knowledge_base_collection.spec,
                             query_knowledge_base.spec,
                             search_for_information_on_the_web.spec,
                         ],
@@ -130,6 +132,7 @@ class SeaPipeline:
                 case "conversational":
                     print("PASSING PROMPT TO CONVERSATIONAL LLM")
                     from src.llm.tools import (
+                        dump_knowledge_base_collection,
                         query_knowledge_base,
                         add_to_knowledge_base,
                         update_data_in_knowledge_base,
@@ -144,6 +147,7 @@ class SeaPipeline:
                         llm_client=self.config.llm_client,
                         config=config,
                         tools_factory=lambda: [
+                            dump_knowledge_base_collection.spec,
                             query_knowledge_base.spec,
                             add_to_knowledge_base.spec,
                             update_data_in_knowledge_base.spec,

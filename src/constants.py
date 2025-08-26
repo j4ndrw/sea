@@ -5,8 +5,9 @@ from src.llm.utils import SEMANTIC_ROUTER_TARGETS
 
 LLM_BACKEND_ENDPOINT = "http://localhost:8080/v1"
 GENERALIST_LLM = "jan:v1:4b"
-SUMMARIZER_LLM = "unsloth:qwen3:4b"
+# GENERALIST_LLM = "unsloth:qwen3:4b"
 # SUMMARIZER_LLM = "unsloth:qwen3:0.6b"
+SUMMARIZER_LLM = "unsloth:qwen3:1.7b"
 
 SEARXNG_ENDPOINT = "http://localhost:8081"
 

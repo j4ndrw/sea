@@ -211,6 +211,29 @@ def forget_data_from_knowledge_base(collection: str, queries: list[str]) -> None
     ids = [ids for ids_cluster in query_results["ids"] for ids in ids_cluster]
     c.delete(ids=ids)
 
+@tool(
+    dedent("""
+        Tool used to dump information from a collection in your knowledge base.
+        TIP: You can also use this to dump facts that you stored during the current or previous conversations.
+        TIP: You can also use this to dump notes that you stored in a `scratchpad` collection over time.
+    """),
+    args=[
+        (
+            "collection",
+            dedent("""
+                The collection to look for data in.
+                For example, you may have a `facts_about_user` where you store their birthday, or their name, you may have a `things_i_learned` where you store things you learned during your interactions with the user, etc...
+                NOTE: This is really useful for getting data that you previously searched for, in a summarized manner. For example, you would use your "things_from_the_web" collection or something...
+            """),
+        ),
+    ],
+    returns=[("list[str]", "List of results from the knowledge base")],
+)
+def dump_knowledge_base_collection(collection: str):
+    c = knowledge_base_client.get_collection(collection)
+    results = c.get()
+    docs = results['documents'] or []
+    return docs
 
 @tool(
     dedent("""
@@ -445,7 +468,10 @@ def modify_agent(agent_to_modify: str, new_implementation: str) -> None:
 
 
 @tool(
-    "Tool used to ask an agent to perform a task for you",
+    dedent("""
+        Tool used to ask an agent to perform a task for you
+        NOTE: After calling this, do not perform additional operations, unless explicitely instructed by the user.
+    """),
     args=[
         (
             "original_request",
@@ -510,6 +536,7 @@ def dispatch_agent(
         tool_actor_spawner=create_tool_actor_spawner(),
     )
     sea_config = SeaConfig(llm_client=llm_client, session=session)
-    SeaPipeline(config=sea_config).run()
+    chat_histories = SeaPipeline(config=sea_config).run()
+    tool_calls: list[str] = [message["content"] for chat_history in chat_histories for message in chat_history if message['role'] == "tool"]
 
-    return [f"Agent `{agent_to_dispatch}` ran successfully!"]
+    return [f"Agent `{agent_to_dispatch}` ran successfully! Results: {tool_calls}"]
