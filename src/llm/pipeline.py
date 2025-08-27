@@ -11,6 +11,7 @@ from src.llm.utils import (
 from src.constants import (
     AGENTIC_SYSTEM_PROMPT,
     CONVERSATIONAL_SYSTEM_PROMPT,
+    GENERALIST_LLM,
     PRIMITIVE_TOOLS_DIR,
     SEARCH_SYSTEM_PROMPT,
     SYSTEM_REMINDERS,
@@ -104,7 +105,7 @@ class SeaPipeline:
                     )
                     self.config.session.main_assistant_actor = spawn_assistant_actor(
                         llm_client=self.config.llm_client,
-                        config=config,
+                        config=config.with_model(GENERALIST_LLM),
                         tools_factory=lambda: [
                             dump_knowledge_base_collection.spec,
                             query_knowledge_base.spec,
@@ -121,7 +122,7 @@ class SeaPipeline:
                     self.force_llm_to_think(deferred=True)
                     self.config.session.main_assistant_actor = spawn_assistant_actor(
                         llm_client=self.config.llm_client,
-                        config=config,
+                        config=config.with_model(GENERALIST_LLM),
                         tools_factory=lambda: get_tools_from(
                             dir=PRIMITIVE_TOOLS_DIR,
                             module_name="tools",
@@ -145,7 +146,7 @@ class SeaPipeline:
                     )
                     self.config.session.main_assistant_actor = spawn_assistant_actor(
                         llm_client=self.config.llm_client,
-                        config=config,
+                        config=config.with_model(GENERALIST_LLM),
                         tools_factory=lambda: [
                             dump_knowledge_base_collection.spec,
                             query_knowledge_base.spec,

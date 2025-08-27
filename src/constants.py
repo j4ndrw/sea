@@ -4,8 +4,9 @@ from textwrap import dedent
 from src.llm.utils import SEMANTIC_ROUTER_TARGETS
 
 LLM_BACKEND_ENDPOINT = "http://localhost:8080/v1"
-GENERALIST_LLM = "jan:v1:4b"
-# GENERALIST_LLM = "unsloth:qwen3:4b"
+ROUTER_LLM = "jan:v1:4b"
+GENERALIST_LLM = "unsloth:qwen3:4b"
+AGENT_LLM = "unsloth:qwen3:4b"
 # SUMMARIZER_LLM = "unsloth:qwen3:0.6b"
 SUMMARIZER_LLM = "unsloth:qwen3:1.7b"
 
@@ -84,6 +85,7 @@ SEMANTIC_ROUTER_SYSTEM_PROMPT = lambda: dedent(f"""
     IMPORTANT:
         1. DO NOT RESPOND TO THE USER'S PROMPT.
         2. ALWAYS categorize the user prompt - can be one of `{SEMANTIC_ROUTER_TARGETS}`.
+        3. ALWAYS run your `categorize_prompt` tool!!!
 """)
 
 SYSTEM_REMINDERS = dedent(f"""
@@ -136,4 +138,6 @@ DISPATCHED_AGENT_PROMPT = lambda agent_to_dispatch, original_request, context: d
     Make sure to always ask yourself if you have fulfilled the request successfully or not.
     If you did fulfill the request, don't call any tools.
     If you didn't fulfill the request, use your tools.
+
+    IMPORTANT: If you run into issues, always pass ask your supervisor agent to look into the issue. Do not perform any additional tool calls after a failure.
 """)

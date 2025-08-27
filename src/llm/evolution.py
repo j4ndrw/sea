@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from functools import wraps
-from typing import Any, Callable, Literal
+from typing import Any, Callable
 
 import pydantic
 from openai.types.chat import (
@@ -131,66 +131,14 @@ class Description:
     args: list[tuple[str, str]] = field(default_factory=lambda: [])
     returns: list[tuple[str, str]] = field(default_factory=lambda: [])
 
+def tool(func: Callable):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
 
-def update_function_docstring(
-    *,
-    kind: Literal["tool"] | Literal["resource"],
-    description: Description | None = None,
-):
-    def decorator(func: Callable):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        if description is None:
-            return wrapper
-
-        wrapper.__doc__ = f"\n    Function type: {kind.capitalize()}"
-        wrapper.__doc__ = "\n    ---"
-        wrapper.__doc__ = f"{description.details}"
-        if len(description.args) > 0:
-            wrapper.__doc__ += "\n\n    Args: \n        "
-            wrapper.__doc__ += "\n        ".join(
-                [*map(lambda arg: f"{arg[0]}: {arg[1]}", description.args)]
-            )
-        if len(description.returns) > 0:
-            wrapper.__doc__ += "\n\n    Returns: \n        "
-            wrapper.__doc__ += "\n        ".join(
-                [*map(lambda ret: f"{ret[0]}: {ret[1]}", description.returns)]
-            )
-
-        return wrapper
-
-    return decorator
-
-
-def tool(
-    details: str,
-    *,
-    args: list[tuple[str, str]] = [],
-    returns: list[tuple[str, str]] = [],
-    requires_hitl: bool = False,
-    standalone: bool = False,
-):
-    def decorator(func: Callable):
-        @update_function_docstring(
-            kind="tool",
-            description=Description(details=details, args=args, returns=returns),
-        )
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-
-        tool = Tool(
-            spec=convert_function_to_tool(wrapper),
-            invoke=wrapper,
-            requires_hitl=requires_hitl,
-            standalone=standalone,
-        )
-        tool_registry[wrapper.__name__] = tool
-        return tool
-
-    return decorator
+    tool = Tool(spec=convert_function_to_tool(wrapper), invoke=wrapper)
+    tool_registry[wrapper.__name__] = tool
+    return tool
 
 
 def get_tools_from(*, dir: str, module_name: str, evolved: bool):

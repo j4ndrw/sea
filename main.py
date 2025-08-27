@@ -4,14 +4,14 @@ from src.llm.spawner.tool import create_tool_actor_spawner
 from src.llm.session.session import InteractiveSession
 from src.llm.evolution import get_tools_from
 from src.llm.utils import LLMGenerationConfig
-from src.constants import GENERALIST_LLM, PRIMITIVE_TOOLS_DIR, SEMANTIC_ROUTER_SYSTEM_PROMPT
+from src.constants import ROUTER_LLM, PRIMITIVE_TOOLS_DIR, SEMANTIC_ROUTER_SYSTEM_PROMPT
 from src.llm.client import llm_client
 from src.llm.pipeline import SeaConfig, SeaPipeline
 
 
 def main():
     llm_generation_config = LLMGenerationConfig(
-        model=GENERALIST_LLM,
+        model=ROUTER_LLM,
         on_content_token=lambda token: print(token, end="", flush=True),
         on_tool_call_token=lambda token: print(
             token.replace("\\n", "\n").replace('\\"', '"'), end="", flush=True
